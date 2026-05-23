@@ -1,108 +1,48 @@
+# 🔴 Adversarial Arena v2.0
 
-# Adversarial Arena
+> **RED vs. BLUE** — KI-gestützte Adversarial Training Simulation für AI Security Research
 
-A portfolio-grade blue-vs-red AI security simulation project that demonstrates adversarial attack scoring, defensive response tracking, and controlled evaluation workflows.
+Eine browserbasierte Simulationsumgebung, in der ein **Red Team** (Angreifer) und ein **Blue Team** (Verteidiger) vollautomatisch gegeneinander trainieren — angetrieben von Claude (Anthropic) als KI-Engine. Angriffe und Verteidigungen werden auf Basis des **MITRE ATT&CK®-Frameworks** generiert, bewertet und über mehrere Generationen evolutionär optimiert.
 
-The goal is to show how a simulation arena can compare attacker and defender behavior in a structured, repeatable, and explainable way.
+---
 
-## Why this project exists
+## ✨ Features
 
-This project was created to demonstrate adversarial security evaluation in a safe and controlled setting.
-It focuses on the core ideas behind red-team and blue-team simulation: generate attack attempts, score outcomes, observe defenses, and compare strategies.
+| Feature | Beschreibung |
+|---|---|
+| 🧠 **Vector Memory** | Semantischer Angriffs-/Verteidigungs-Speicher mit Cosine-Similarity-Retrieval |
+| 👥 **Population Training** | 4 Red- + 4 Blue-Agenten mit individuellem ELO und Spezialisierung |
+| 📈 **Confidence-weighted ELO** | Margin of Victory bestimmt ELO-Änderung, nicht nur Sieg/Niederlage |
+| 📊 **Real Metrics** | F1-Score, Precision, Recall, TP/FP/FN/TN pro Angriffsvektor |
+| 🎯 **MITRE ATT&CK® Integration** | Angriffe gemappt auf TA0001–TA0043 (Initial Access, Exfil, Impact, ...) |
+| 🧑‍🔬 **Human-in-the-Loop RLHF** | Forscher kann Feedback einreichen, das direkt in den nächsten Prompt einfließt |
+| 🗺️ **Attack Space Map** | 2D-Cluster-Visualisierung aller Angriffe nach Taktik und Generation |
+| ⚖️ **Blind Arbiter** | Unabhängiger KI-Schiedsrichter bewertet ohne Kenntnis von Red/Blue |
+| 🔄 **Auto-Loop** | Vollautomatisches Training über beliebig viele Generationen |
+| 📴 **Offline-Version** | Standalone-HTML ohne CDN-Abhängigkeiten |
 
-The repository is intentionally structured as a portfolio project to show:
-- adversarial testing and scoring logic.
-- simulation workflow thinking.
-- blue-team defense evaluation.
-- a realistic path toward a production-ready security test arena.
+---
 
-## Core capabilities
+## 🗂️ Dateien
+adversarial-arena.html          # Online-Version (lädt React/Babel via CDN)
+adversarial-arena-offline.html  # Offline-Version (alle Dependencies eingebettet)
+adversarial-arena-v2.jsx        # React-Quellcode (JSX, für eigene Builds)
+Adversial-Arena.md              # Konzept: AutoGen-basierte Python-Implementierung
 
-- Red-team attack simulation.
-- Blue-team defense responses.
-- Automated attack scoring.
-- Scenario replay and comparison.
-- Result aggregation and metrics.
-- Analyst review and reporting.
+---
 
-## Workflow stages
+## 🚀 Quickstart
 
-### 1. Setup
-Select the simulation scenario and define the attack/defense roles.
+### Option A — Online (empfohlen)
+1. `adversarial-arena.html` im Browser öffnen (Chrome/Firefox/Edge)
+2. Eigenen **Anthropic API-Key** eingeben (`sk-ant-...`)
+3. **RUNDE** klicken oder **AUTO** aktivieren
 
-### 2. Attack
-Generate adversarial attempts against the target model or system.
+### Option B — Offline (kein Internet nötig)
+1. `adversarial-arena-offline.html` im Browser öffnen
+2. API-Key eingeben → starten
 
-### 3. Defend
-Apply defensive logic, filtering, monitoring, or response rules.
-
-### 4. Score
-Measure how successful the attack was and how effective the defense performed.
-
-### 5. Review
-Compare results, inspect evidence, and summarize the exercise.
-
-## Architecture / Layer overview
-
-### 1. Presentation layer
-The frontend shows scenarios, run history, scores, and comparison views.
-
-Main goals:
-- Show red-team and blue-team results.
-- Present attack scoring.
-- Display run timelines and summaries.
-
-Key entry point:
-- `frontend/index.html`
-
-### 2. Orchestration layer
-The orchestrator manages the simulation flow.
-
-Main goals:
-- Start and track a scenario run.
-- Route actions to the red or blue side.
-- Capture metrics from each step.
-- Combine outputs into one result view.
-
-Key entry point:
-- `backend/app/main.py`
-
-### 3. Simulation layer
-This layer contains the attack and defense logic.
-
-Main goals:
-- Generate adversarial attempts.
-- Apply defense responses.
-- Score the simulation outcome.
-- Support repeatable scenario runs.
-
-Key components:
-- Attack simulation.
-- Defense simulation.
-- Scoring engine.
-- Scenario comparison.
-
-### 4. Data layer
-The data layer stores runs and outcomes.
-
-Main goals:
-- Keep scenario history.
-- Store scores and evidence.
-- Preserve comparison results.
-- Support future API and database integrations.
-
-## Suggested module map
-
-```text
-adversarial-arena/
-├── README.md
-├── docs/
-│   ├── architecture.md
-│   └── roadmap.md
-├── frontend/
-│   └── index.html
-├── backend/
-│   ├── app/
-│   │   └── main.py
-│   └── requirements.txt
-└── tests/
+### Option C — React-Projekt einbinden
+```bash
+# adversarial-arena-v2.jsx als Komponente importieren
+import AdversarialArenaV2 from './adversarial-arena-v2'
