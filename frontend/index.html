@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adversarial Arena</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #121a2b;
+      --panel-2: #182236;
+      --line: #27324a;
+      --text: #edf2ff;
+      --muted: #9aa8c7;
+      --accent: #4cc9f0;
+      --good: #10b981;
+      --warn: #f59e0b;
+      --risk: #ef4444;
+      --radius: 18px;
+      --shadow: 0 12px 30px rgba(0,0,0,0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(180deg, #09111d 0%, #0d1526 100%);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .wrapper {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      background: rgba(10, 16, 29, 0.92);
+      border-right: 1px solid var(--line);
+      padding: 24px 18px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+
+    .brand p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .nav a {
+      display: block;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      color: var(--muted);
+      background: transparent;
+      text-decoration: none;
+    }
+
+    .nav a:hover,
+    .nav a.active {
+      background: var(--panel);
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    .main { padding: 24px; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: rgba(18, 26, 43, 0.95);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-copy {
+      padding: 28px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(76, 201, 240, 0.14);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .hero-copy h2 {
+      margin: 16px 0 12px;
+      font-size: 2rem;
+      line-height: 1.1;
+    }
+
+    .hero-copy p {
+      color: var(--muted);
+      max-width: 60ch;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+
+    .btn {
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      font-weight: bold;
+      display: inline-block;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .btn.primary {
+      background: var(--accent);
+      color: #07111c;
+      border-color: transparent;
+    }
+
+    .metrics {
+      padding: 22px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 1.5rem;
+      margin-bottom: 6px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .section {
+      margin-bottom: 20px;
+    }
+
+    .section h3 {
+      margin: 0 0 6px;
+      font-size: 1.1rem;
+    }
+
+    .section p.section-copy {
+      margin: 0 0 14px;
+      color: var(--muted);
+    }
+
+    .grid-2,
+    .grid-3 {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+    .tile {
+      padding: 20px;
+    }
+
+    .tile h4 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+    }
+
+    .tile p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      padding: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: bold;
+    }
+
+    .status.good {
+      background: rgba(16, 185, 129, 0.14);
+      color: #6ff0cd;
+    }
+
+    .status.warn {
+      background: rgba(245, 158, 11, 0.14);
+      color: #ffcc6f;
+    }
+
+    .status.risk {
+      background: rgba(239, 68, 68, 0.14);
+      color: #ff8d8d;
+    }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 0.92rem;
+      padding: 8px 2px 20px;
+    }
+
+    @media (max-width: 1050px) {
+      .wrapper { grid-template-columns: 1fr; }
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+      .hero,
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>Adversarial Arena</h1>
+        <p>Blue-vs-red simulation and scoring</p>
+      </div>
+
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#" class="active">Overview</a>
+        <a href="#">Scenarios</a>
+        <a href="#">Attack</a>
+        <a href="#">Defense</a>
+        <a href="#">Scores</a>
+        <a href="#">Review</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <section class="hero">
+        <div class="card hero-copy">
+          <span class="eyebrow">Adversarial Security Portfolio Project</span>
+          <h2>Adversarial Arena</h2>
+          <p>
+            A simulation concept that demonstrates red-team attack attempts, blue-team defenses,
+            automated scoring, and run comparison in one controlled arena.
+          </p>
+
+          <div class="button-row">
+            <a href="#modules" class="btn primary">View Modules</a>
+            <a href="#architecture" class="btn">Review Architecture</a>
+          </div>
+        </div>
+
+        <div class="card metrics" aria-label="Key metrics">
+          <div class="metric">
+            <strong>12</strong>
+            <span>Scenarios</span>
+          </div>
+          <div class="metric">
+            <strong>31</strong>
+            <span>Attack runs</span>
+          </div>
+          <div class="metric">
+            <strong>26</strong>
+            <span>Defense hits</span>
+          </div>
+          <div class="metric">
+            <strong>74%</strong>
+            <span>Average defense score</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="modules">
+        <h3>Core modules</h3>
+        <p class="section-copy">
+          This view is designed to compare attacker and defender behavior in a clear and repeatable way.
+        </p>
+
+        <div class="grid-2">
+          <article class="card tile">
+            <h4>Red Team</h4>
+            <p>Generates adversarial attempts against the chosen system or model.</p>
+          </article>
+
+          <article class="card tile">
+            <h4>Blue Team</h4>
+            <p>Applies monitoring, filtering, and response logic to defend the system.</p>
+          </article>
+
+          <article class="card tile">
+            <h4>Scoring Engine</h4>
+            <p>Measures attack success, defense effectiveness, and overall run outcome.</p>
+          </article>
+
+          <article class="card tile">
+            <h4>Review</h4>
+            <p>Compares runs and summarizes what happened during the exercise.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3>Operational scenario</h3>
+        <p class="section-copy">
+          Example portfolio narrative showing how the arena supports controlled adversarial evaluation.
+        </p>
+
+        <div class="grid-3">
+          <article class="card tile">
+            <h4>Scenario Start</h4>
+            <p>A test scenario is selected and both sides are initialized.</p>
+          </article>
+
+          <article class="card tile">
+            <h4>Attack / Defense</h4>
+            <p>The red side generates an attempt while the blue side reacts and records evidence.</p>
+          </article>
+
+          <article class="card tile">
+            <h4>Outcome Review</h4>
+            <p>The score is calculated, compared, and summarized for later analysis.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="architecture">
+        <h3>Architecture snapshot</h3>
+        <p class="section-copy">
+          Representative layers and flows for the adversarial evaluation arena.
+        </p>
+
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Layer</th>
+                <th>Purpose</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Presentation</td>
+                <td>Shows scenarios, runs, scores, and comparisons.</td>
+                <td><span class="status good">Defined</span></td>
+              </tr>
+              <tr>
+                <td>Orchestration</td>
+                <td>Coordinates the red and blue workflows.</td>
+                <td><span class="status good">Defined</span></td>
+              </tr>
+              <tr>
+                <td>Simulation</td>
+                <td>Generates attacks, defenses, and scores.</td>
+                <td><span class="status warn">Planned</span></td>
+              </tr>
+              <tr>
+                <td>Data</td>
+                <td>Stores results, runs, and review notes.</td>
+                <td><span class="status warn">Planned</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="footer-note">
+        This frontend is intentionally lightweight so the repository can be reviewed quickly from a GitHub link.
+      </p>
+    </main>
+  </div>
+</body>
+</html>
