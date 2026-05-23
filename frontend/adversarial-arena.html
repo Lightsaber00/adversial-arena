@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adversarial Arena v2.0 — Red vs Blue</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #030508; color: #e8e8e8; }
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
+  @keyframes fadeIn  { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes glow    { 0%,100%{box-shadow:0 0 16px #ff2a5433} 50%{box-shadow:0 0 32px #ff2a5466} }
+  @keyframes glowB   { 0%,100%{box-shadow:0 0 16px #00e5ff33} 50%{box-shadow:0 0 32px #00e5ff66} }
+  ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-thumb{background:#ffffff18;border-radius:2px}
+  button:hover{opacity:.82;transition:opacity .15s}
+
+  /* API Key overlay */
+  #apiOverlay {
+    position:fixed;inset:0;background:rgba(3,5,8,0.97);display:flex;
+    align-items:center;justify-content:center;z-index:9999;
+    font-family:'JetBrains Mono',monospace;
+  }
+  #apiBox {
+    border:1px solid rgba(0,229,255,0.3);border-radius:14px;padding:36px 40px;
+    max-width:460px;width:90%;background:rgba(0,229,255,0.04);text-align:center;
+  }
+  #apiBox h2 { font-size:18px;font-weight:800;color:#00e5ff;margin-bottom:10px; }
+  #apiBox p  { font-size:11px;color:rgba(255,255,255,0.45);line-height:1.7;margin-bottom:20px; }
+  #apiInput  {
+    width:100%;padding:12px 14px;background:rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.15);border-radius:8px;
+    color:#e8e8e8;font-size:12px;font-family:inherit;outline:none;
+    letter-spacing:1px;margin-bottom:14px;
+  }
+  #apiInput:focus { border-color:#00e5ff; }
+  #apiBtn {
+    width:100%;padding:12px;border-radius:8px;border:1px solid #00e5ff44;
+    background:rgba(0,229,255,0.14);color:#00e5ff;font-weight:800;
+    font-size:12px;font-family:inherit;cursor:pointer;letter-spacing:2px;
+  }
+  #apiNote { font-size:10px;color:rgba(255,255,255,0.2);margin-top:12px;line-height:1.6; }
+</style>
+</head>
+<body>
+
+<!-- API Key Gate -->
+<div id="apiOverlay">
+  <div id="apiBox">
+    <h2>⚔ ADVERSARIAL ARENA v2.0</h2>
+    <p>Diese App benötigt einen Anthropic API-Key um Red Team, Blue Team und den unabhängigen Schiedsrichter via Claude zu betreiben.</p>
+    <input id="apiInput" type="password" placeholder="sk-ant-api03-..." autocomplete="off" />
+    <button id="apiBtn" onclick="startApp()">ARENA STARTEN →</button>
+    <p id="apiNote">Der Key bleibt lokal im Browser — er wird nicht gespeichert oder übertragen.<br>Hol dir einen Key auf: console.anthropic.com</p>
+  </div>
+</div>
+
+<div id="root"></div>
+
+<script>
+  let ANTHROPIC_API_KEY = "";
+  function startApp() {
+    const key = document.getElementById("apiInput").value.trim();
+    if (!key.startsWith("sk-ant")) {
+      document.getElementById("apiInput").style.borderColor = "#ff2a54";
+      return;
+    }
+    ANTHROPIC_API_KEY = key;
+    document.getElementById("apiOverlay").style.display = "none";
+    renderApp();
+  }
+  document.getElementById("apiInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") startApp();
+  });
+</script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const MITRE_TACTICS = {
+  "TA0001": { name: "Initial Access",    color: "#ff6b35" },
+  "TA0002": { name: "Execution",         color: "#ff2a54" },
+  "TA0003": { name: "Persistence",       color: "#c9184a" },
+  "TA0005": { name: "Defense Evasion",   color: "#ff9500" },
+  "TA0006": { name: "Credential Access", color: "#ffd60a" },
+  "TA0009": { name: "Collection",        color: "#a8dadc" },
+  "TA0010": { name: "Exfiltration",      color: "#00e5ff" },
+  "TA0040": { name: "Impact",            color: "#7b2fff" },
+  "TA0043": { name: "Reconnaissance",   color: "#06d6a0" },
+};
+
+const ATTACK_TEMPLATES = [
+  { type: "Prompt Injection via Role Confusion",   tactic: "TA0001", complexity: 0.6  },
+  { type: "Gradual Model Poisoning",               tactic: "TA0003", complexity: 0.8  },
+  { type: "Adversarial Spectrogram Patch",         tactic: "TA0005", complexity: 0.9  },
+  { type: "Synthetic Identity Bypass",             tactic: "TA0006", complexity: 0.7  },
+  { type: "Byzantine Agent Manipulation",          tactic: "TA0040", complexity: 0.95 },
+  { type: "Cold Start Exploitation",               tactic: "TA0001", complexity: 0.5  },
+  { type: "Signal Flooding + Hidden Payload",      tactic: "TA0005", complexity: 0.75 },
+  { type: "Supply Chain Backdoor Insertion",       tactic: "TA0003", complexity: 0.85 },
+  { type: "Multi-Turn Context Manipulation",       tactic: "TA0002", complexity: 0.7  },
+  { type: "Federated Learning Poisoning",          tactic: "TA0040", complexity: 0.9  },
+  { type: "LLM Fingerprinting via Query Patterns", tactic: "TA0043", complexity: 0.65 },
+  { type: "Deepfake Voice Authentication Bypass",  tactic: "TA0006", complexity: 0.8  },
+  { type: "Data Exfiltration via Covert Channel",  tactic: "TA0010", complexity: 0.85 },
+  { type: "Adversarial Patch on CV Pipeline",      tactic: "TA0005", complexity: 0.9  },
+  { type: "Credential Stuffing + Behavior Spoof",  tactic: "TA0006", complexity: 0.7  },
+];
+
+const C = { red:"#ff2a54", blue:"#00e5ff", gold:"#ffd60a", green:"#06d6a0", purple:"#7b2fff", dim:"rgba(255,255,255,0.25)" };
+
+// ─── VECTOR MEMORY ────────────────────────────────────────────────────────────
+class VectorMemory {
+  constructor() { this.attackStore=[]; this.defenseStore=[]; this.nextId=0; }
+  embed(text) {
+    const kw=["injection","poison","bypass","flood","exfil","spoof","chain","identity","manipul","evasion","deepfake","federated","credential","patch","context"];
+    return kw.map(k=>text.toLowerCase().includes(k)?1:0);
+  }
+  cosineSim(a,b){
+    const dot=a.reduce((s,v,i)=>s+v*b[i],0);
+    const mA=Math.sqrt(a.reduce((s,v)=>s+v*v,0)), mB=Math.sqrt(b.reduce((s,v)=>s+v*v,0));
+    return mA&&mB?dot/(mA*mB):0;
+  }
+  storeAttack(attack,outcome,gen){
+    const emb=this.embed(`${attack.name} ${attack.vector} ${attack.evasion}`);
+    this.attackStore.push({id:this.nextId++,attack,embedding:emb,outcome,generation:gen});
+    if(this.attackStore.length>200) this.attackStore.shift();
+  }
+  storeDefense(defense,blueScore,weakness){
+    const emb=this.embed(`${defense.detection} ${defense.countermeasure} ${defense.weakness}`);
+    this.defenseStore.push({id:this.nextId++,defense,embedding:emb,blueScore,weakness});
+    if(this.defenseStore.length>200) this.defenseStore.shift();
+  }
+  getSimilarSuccessfulAttacks(query,k=3){
+    const q=this.embed(query);
+    return this.attackStore.filter(e=>e.outcome==="red").map(e=>({...e,sim:this.cosineSim(q,e.embedding)})).sort((a,b)=>b.sim-a.sim).slice(0,k);
+  }
+  getSimilarFailedDefenses(query,k=3){
+    const q=this.embed(query);
+    return this.defenseStore.filter(e=>e.blueScore<0.45).map(e=>({...e,sim:this.cosineSim(q,e.embedding)})).sort((a,b)=>b.sim-a.sim).slice(0,k);
+  }
+  getAttackClusterData(){
+    return this.attackStore.slice(-40).map(e=>({name:e.attack.name?.slice(0,20),tactic:e.attack.tactic,won:e.outcome==="red",gen:e.generation}));
+  }
+}
+
+// ─── POPULATION ENGINE ────────────────────────────────────────────────────────
+class PopulationEngine {
+  constructor(){
+    this.generation=0;
+    this.redPop=this._initPop("red",4);
+    this.bluePop=this._initPop("blue",4);
+    this.history=[];
+    this.metrics={tp:0,fp:0,fn:0,tn:0};
+  }
+  _initPop(side,n){
+    return Array.from({length:n},(_,i)=>({
+      id:`${side}-${i}`, elo:1200,
+      mutationRate:  side==="red"  ? 0.2+i*0.1 : 0.3,
+      learningRate:  side==="blue" ? 0.2+i*0.1 : 0.3,
+      wins:0, losses:0, totalScore:0, rounds:0,
+      specialization: side==="red"
+        ? ["injector","poisoner","evader","flooder"][i]
+        : ["classifier","anomaly","integrity","adapter"][i],
+    }));
+  }
+  updateElo(agent,opponent,won,myScore,oppScore){
+    const K=32, margin=Math.abs(myScore-oppScore), Kadj=K*(1+margin);
+    const exp=1/(1+Math.pow(10,(opponent.elo-agent.elo)/400));
+    agent.elo=Math.round(agent.elo+Kadj*((won?1:0)-exp));
+    agent.elo=Math.max(600,Math.min(2400,agent.elo));
+  }
+  updateMetrics(redWon,redConf,blueConf){
+    if(!redWon) this.metrics.tp++;
+    else        this.metrics.fn++;
+    if(blueConf>0.75&&redConf<0.4&&!redWon) this.metrics.fp++;
+    else this.metrics.tn++;
+  }
+  getF1(){
+    const{tp,fp,fn}=this.metrics;
+    if(tp+fp===0||tp+fn===0) return 0;
+    const p=tp/(tp+fp), r=tp/(tp+fn);
+    return p+r>0?(2*p*r)/(p+r):0;
+  }
+  getPrecision(){ const{tp,fp}=this.metrics; return tp+fp>0?tp/(tp+fp):0; }
+  getRecall()   { const{tp,fn}=this.metrics; return tp+fn>0?tp/(tp+fn):0; }
+  getBestRed()  { return [...this.redPop].sort((a,b)=>b.elo-a.elo)[0]; }
+  getBestBlue() { return [...this.bluePop].sort((a,b)=>b.elo-a.elo)[0]; }
+  selectFighters(){ return {red:this.getBestRed(),blue:this.getBestBlue()}; }
+  evolve(redWon,redScore,blueScore,rA,bA){
+    this.generation++;
+    this.updateElo(rA,bA,redWon,redScore,blueScore);
+    this.updateElo(bA,rA,!redWon,blueScore,redScore);
+    this.updateMetrics(redWon,rA.mutationRate,bA.learningRate);
+    rA.rounds++; rA.totalScore+=redScore;
+    bA.rounds++; bA.totalScore+=blueScore;
+    if(redWon){ rA.wins++; bA.losses++; rA.mutationRate=Math.min(0.95,rA.mutationRate+0.04); }
+    else      { bA.wins++; rA.losses++; bA.learningRate=Math.min(0.95,bA.learningRate+0.06); }
+    if(this.generation%5===0) this._replaceWeakest();
+    this.history.push({gen:this.generation,redWon,redScore,blueScore,redElo:this.getBestRed().elo,blueElo:this.getBestBlue().elo,f1:this.getF1()});
+  }
+  _replaceWeakest(){
+    const rs=[...this.redPop].sort((a,b)=>b.elo-a.elo);
+    const bs=[...this.bluePop].sort((a,b)=>b.elo-a.elo);
+    const ri=this.redPop.indexOf(rs[rs.length-1]);
+    const bi=this.bluePop.indexOf(bs[bs.length-1]);
+    this.redPop[ri]  ={...rs[0], id:`red-mut-${this.generation}`,  elo:1000,wins:0,losses:0,rounds:0,mutationRate:Math.min(0.95,rs[0].mutationRate+0.1)};
+    this.bluePop[bi] ={...bs[0], id:`blue-mut-${this.generation}`, elo:1000,wins:0,losses:0,rounds:0,learningRate:Math.min(0.95,bs[0].learningRate+0.1)};
+  }
+}
+
+class MetricTracker {
+  constructor(){ this.byTactic={}; }
+  record(tactic,blueWon){
+    if(!this.byTactic[tactic]) this.byTactic[tactic]={tp:0,fn:0,attempts:0};
+    this.byTactic[tactic].attempts++;
+    if(blueWon) this.byTactic[tactic].tp++;
+    else        this.byTactic[tactic].fn++;
+  }
+  getDetectionRate(tactic){ const t=this.byTactic[tactic]; return t?t.tp/t.attempts:null; }
+  getWeakest(){ return Object.entries(this.byTactic).filter(([,v])=>v.attempts>=2).sort(([,a],[,b])=>(a.tp/a.attempts)-(b.tp/b.attempts))[0]?.[0]; }
+}
+
+const memory    = new VectorMemory();
+const popEngine = new PopulationEngine();
+const metrics   = new MetricTracker();
+
+// ─── CLAUDE API ───────────────────────────────────────────────────────────────
+async function callClaude(system, user) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key": ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,system,messages:[{role:"user",content:user}]}),
+  });
+  const data=await res.json();
+  if(data.error) throw new Error(data.error.message);
+  return data.content?.[0]?.text||"";
+}
+
+function parseJSON(raw){ try{ return JSON.parse(raw.replace(/```json|```/g,"").trim()); } catch{ return null; } }
+
+async function genAttack(template,fighter,similar,feedback){
+  const memCtx=similar.length?"\nÄhnliche erfolgreiche Angriffe:\n"+similar.map(e=>`- "${e.attack.name}": ${e.attack.evasion}`).join("\n"):"";
+  const sys=`Du bist ein Red Team AI Security Researcher (Spezialist: ${fighter.specialization}). Antworte NUR mit JSON, kein Markdown.`;
+  const prompt=`Gen: ${popEngine.generation+1} | ELO: ${fighter.elo} | MutRate: ${fighter.mutationRate.toFixed(2)}
+MITRE: ${template.tactic} (${MITRE_TACTICS[template.tactic]?.name}) | Komplexität: ${template.complexity}
+Typ: "${template.type}"${memCtx}${feedback?`\nFeedback: "${feedback}"`:""}
+
+JSON: {"name":"string","vector":"1 Satz","payload":"Technik","evasion":"Evasion-Methode","tactic":"${template.tactic}","confidence":0.XX,"novelty":"was neu ist"}`;
+  const raw=await callClaude(sys,prompt);
+  return {...(parseJSON(raw)||{name:template.type,vector:"—",payload:"—",evasion:"Standard",confidence:0.5,novelty:"—"}),tactic:template.tactic};
+}
+
+async function genDefense(attack,fighter,failed,feedback){
+  const memCtx=failed.length?"\nGescheitertene Verteidigungen (vermeiden):\n"+failed.map(e=>`- "${e.defense.countermeasure}": Lücke="${e.weakness}"`).join("\n"):"";
+  const sys=`Du bist ein Blue Team Analyst (Spezialist: ${fighter.specialization}). Antworte NUR mit JSON, kein Markdown.`;
+  const prompt=`Gen: ${popEngine.generation+1} | ELO: ${fighter.elo} | LernRate: ${fighter.learningRate.toFixed(2)}
+Angriff: ${JSON.stringify({name:attack.name,vector:attack.vector,evasion:attack.evasion})}
+MITRE: ${attack.tactic}${memCtx}${feedback?`\nFeedback: "${feedback}"`:""}
+
+JSON: {"detection":"Methode","countermeasure":"Maßnahme","confidence":0.XX,"weakness":"Lücke","fp_risk":"low|medium|high","coverage":"nicht erkannte Varianten"}`;
+  const raw=await callClaude(sys,prompt);
+  return parseJSON(raw)||{detection:"Muster-Matching",countermeasure:"Standard-Block",confidence:0.5,weakness:"Unbekannt",fp_risk:"medium",coverage:"—"};
+}
+
+async function arbitrateBlind(attack,defense,gen){
+  const sys=`Du bist ein unabhängiger AI Security Auditor. Bewerte zwei anonyme Strategien rein technisch. Antworte NUR mit JSON.`;
+  const prompt=`Gen ${gen} — Blind:
+STRATEGIE A (Offensiv): Vektor: ${attack.vector} | Payload: ${attack.payload} | Evasion: ${attack.evasion}
+STRATEGIE B (Defensiv): Erkennung: ${defense.detection} | Maßnahme: ${defense.countermeasure} | Lücke: ${defense.weakness}
+
+JSON: {"winner":"A|B","scoreA":0.XX,"scoreB":0.XX,"reason":"2 Sätze","learningA":"Verbesserung A","learningB":"Verbesserung B","realistic":"true|false"}`;
+  const raw=await callClaude(sys,prompt);
+  const p=parseJSON(raw);
+  if(!p){ const rw=Math.random()>0.5; return {winner:rw?"red":"blue",redScore:rw?.65:.35,blueScore:rw?.35:.65,reason:"Parse-Fehler",realistic:"true"}; }
+  return{...p,winner:p.winner==="A"?"red":"blue",redScore:p.scoreA,blueScore:p.scoreB,redLearning:p.learningA,blueLearning:p.learningB};
+}
+
+// ─── UI ATOMS ─────────────────────────────────────────────────────────────────
+function Stat({label,value,color,small}){
+  return(
+    <div style={{textAlign:"center",padding:small?"5px 3px":"9px 5px",background:"rgba(255,255,255,0.02)",borderRadius:6}}>
+      <div style={{fontSize:small?12:17,fontWeight:800,color:color||"#fff",lineHeight:1}}>{value}</div>
+      <div style={{fontSize:7,color:C.dim,letterSpacing:1,marginTop:3}}>{label}</div>
+    </div>
+  );
+}
+function Bar({value,color,height=4}){
+  return(
+    <div style={{height,borderRadius:2,background:"rgba(255,255,255,0.06)",overflow:"hidden"}}>
+      <div style={{width:`${Math.min((value||0)*100,100)}%`,height:"100%",background:color,borderRadius:2,transition:"width .8s"}}/>
+    </div>
+  );
+}
+function Tag({label,color}){
+  return <span style={{fontSize:8,padding:"2px 6px",borderRadius:3,background:`${color}18`,color,border:`1px solid ${color}33`,fontWeight:700,letterSpacing:.5}}>{label}</span>;
+}
+function PopTable({pop,side}){
+  const c=side==="red"?C.red:C.blue;
+  return(
+    <div>
+      {[...pop].sort((a,b)=>b.elo-a.elo).map((agent,i)=>(
+        <div key={agent.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+          <div style={{fontSize:9,color:i===0?c:C.dim,fontWeight:i===0?800:400,minWidth:14}}>{i===0?"★":`${i+1}`}</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:i===0?c:"rgba(255,255,255,0.5)",fontWeight:700}}>{agent.specialization}</div>
+            <Bar value={(agent.elo-600)/1800} color={c} height={3}/>
+          </div>
+          <div style={{fontSize:10,fontWeight:800,color:i===0?c:C.dim}}>{agent.elo}</div>
+          <div style={{fontSize:8,color:"rgba(255,255,255,0.2)"}}>{agent.wins}W/{agent.losses}L</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+function EloChart({history}){
+  if(history.length<2) return <div style={{color:C.dim,fontSize:9,textAlign:"center",padding:16}}>Noch keine Daten</div>;
+  const W=300,H=80,pad=12,pts=history.slice(-20);
+  const allE=pts.flatMap(p=>[p.redElo,p.blueElo]);
+  const minE=Math.min(...allE)-20, maxE=Math.max(...allE)+20;
+  const tx=i=>pad+(i/(pts.length-1))*(W-pad*2);
+  const ty=v=>H-pad-((v-minE)/(maxE-minE))*(H-pad*2);
+  const rP=pts.map((p,i)=>`${i===0?"M":"L"}${tx(i)},${ty(p.redElo)}`).join(" ");
+  const bP=pts.map((p,i)=>`${i===0?"M":"L"}${tx(i)},${ty(p.blueElo)}`).join(" ");
+  const fP=pts.map((p,i)=>`${i===0?"M":"L"}${tx(i)},${ty(minE+(p.f1||0)*(maxE-minE))}`).join(" ");
+  return(
+    <div>
+      <div style={{display:"flex",gap:10,marginBottom:4,fontSize:8}}>
+        <span style={{color:C.red}}>● Red</span><span style={{color:C.blue}}>● Blue</span><span style={{color:C.green}}>- F1</span>
+      </div>
+      <svg width={W} height={H}>
+        <path d={rP} fill="none" stroke={C.red}   strokeWidth={1.5}/>
+        <path d={bP} fill="none" stroke={C.blue}  strokeWidth={1.5}/>
+        <path d={fP} fill="none" stroke={C.green} strokeWidth={1} strokeDasharray="3,3"/>
+        {pts.map((p,i)=>(
+          <g key={i}>
+            <circle cx={tx(i)} cy={ty(p.redElo)}  r={2} fill={C.red}/>
+            <circle cx={tx(i)} cy={ty(p.blueElo)} r={2} fill={C.blue}/>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+function MitreHeatmap({tracker}){
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+      {Object.entries(MITRE_TACTICS).map(([id,t])=>{
+        const rate=tracker.getDetectionRate(id);
+        return(
+          <div key={id} style={{padding:"6px 8px",borderRadius:6,background:t.color,opacity:rate!=null?0.15+rate*0.7:0.12,border:`1px solid ${t.color}44`,transition:"all .6s"}}>
+            <div style={{fontSize:7,fontWeight:700,color:"#fff",letterSpacing:.5,opacity:.7}}>{id}</div>
+            <div style={{fontSize:8,color:"#fff",marginTop:1,opacity:.8}}>{t.name}</div>
+            <div style={{fontSize:10,fontWeight:800,color:"#fff",marginTop:2}}>{rate!=null?`${(rate*100).toFixed(0)}%`:"—"}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function AttackMap({memory,gen}){
+  const data=memory.getAttackClusterData();
+  if(data.length<3) return <div style={{color:C.dim,fontSize:9,textAlign:"center",padding:16}}>Braucht min. 3 Runden</div>;
+  const tacticOrder=Object.keys(MITRE_TACTICS);
+  return(
+    <div style={{position:"relative",height:130,background:"rgba(255,255,255,0.015)",borderRadius:8,overflow:"hidden"}}>
+      {data.map((d,i)=>{
+        const ti=tacticOrder.indexOf(d.tactic);
+        const x=ti>=0?(ti/(tacticOrder.length-1))*88+2:Math.random()*90;
+        const y=(d.gen/(gen||1))*80+5;
+        const tc=MITRE_TACTICS[d.tactic]?.color||(d.won?C.red:C.blue);
+        return <div key={i} title={`${d.name} (Gen ${d.gen})`} style={{position:"absolute",left:`${x}%`,top:`${y}%`,width:7,height:7,borderRadius:"50%",background:tc,opacity:d.won?.9:.5,border:d.won?`1px solid ${C.red}`:"none"}}/>;
+      })}
+      <div style={{position:"absolute",bottom:3,left:5,fontSize:7,color:C.dim}}>← MITRE Tactic →</div>
+      <div style={{position:"absolute",top:3,right:5,fontSize:7,color:C.dim}}>Gen ↓</div>
+      <div style={{position:"absolute",bottom:3,right:5,display:"flex",gap:6,fontSize:7}}>
+        <span style={{color:C.red}}>● bypass</span><span style={{color:C.blue,opacity:.6}}>● blocked</span>
+      </div>
+    </div>
+  );
+}
+function RoundCard({round}){
+  const rw=round.verdict?.winner==="red";
+  const wc=rw?C.red:C.blue;
+  const tactic=MITRE_TACTICS[round.attack?.tactic];
+  return(
+    <div style={{border:`1px solid ${wc}28`,borderRadius:8,padding:10,background:`${wc}05`,animation:"fadeIn .4s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          <span style={{fontSize:8,color:C.dim}}>G{round.generation}</span>
+          {tactic&&<Tag label={tactic.name} color={tactic.color}/>}
+          {round.verdict?.realistic==="false"&&<Tag label="UNREALISTISCH" color={C.gold}/>}
+        </div>
+        <Tag label={rw?"RED WINS":"BLUE WINS"} color={wc}/>
+      </div>
+      {round.attack&&(
+        <div style={{marginBottom:5}}>
+          <div style={{fontSize:9,color:C.red,fontWeight:700}}>⚔ {round.attack.name}</div>
+          <div style={{fontSize:8,color:"rgba(255,255,255,0.3)",lineHeight:1.4,marginTop:1}}>{round.attack.novelty}</div>
+        </div>
+      )}
+      {round.defense&&(
+        <div style={{marginBottom:5}}>
+          <div style={{fontSize:9,color:C.blue,fontWeight:700}}>⬡ {round.defense.countermeasure}</div>
+          <div style={{fontSize:8,color:"rgba(255,100,100,0.4)",lineHeight:1.4,marginTop:1}}>Gap: {round.defense.coverage}</div>
+        </div>
+      )}
+      {round.verdict?.reason&&(
+        <div style={{fontSize:8,color:"rgba(255,255,255,0.3)",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:5,lineHeight:1.5}}>{round.verdict.reason}</div>
+      )}
+      <div style={{display:"flex",gap:8,marginTop:5,alignItems:"center"}}>
+        <div style={{flex:1}}><Bar value={round.verdict?.redScore||0} color={C.red}/></div>
+        <div style={{flex:1}}><Bar value={round.verdict?.blueScore||0} color={C.blue}/></div>
+        <span style={{fontSize:7,color:C.dim,whiteSpace:"nowrap"}}>{round.redElo}:{round.blueElo}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function App(){
+  const [running,setRunning]       = useState(false);
+  const [autoLoop,setAutoLoop]     = useState(false);
+  const [rounds,setRounds]         = useState([]);
+  const [phase,setPhase]           = useState("idle");
+  const [curAttack,setAttack]      = useState(null);
+  const [curDefense,setDefense]    = useState(null);
+  const [status,setStatus]         = useState("Bereit — drücke ▶ RUNDE oder ⟳ AUTO");
+  const [error,setError]           = useState(null);
+  const [tab,setTab]               = useState("arena");
+  const [humanFeedback,setFB]      = useState("");
+  const [pendingFB,setPending]     = useState("");
+  const [snap,setSnap]             = useState({gen:0,redElo:1200,blueElo:1200,f1:0,precision:0,recall:0});
+  const [replaceNote,setReplace]   = useState(null);
+  const abortRef = useRef(false);
+  const loopRef  = useRef(false);
+
+  const doSnap=useCallback(()=>{
+    setSnap({gen:popEngine.generation,redElo:popEngine.getBestRed().elo,blueElo:popEngine.getBestBlue().elo,f1:popEngine.getF1(),precision:popEngine.getPrecision(),recall:popEngine.getRecall()});
+  },[]);
+
+  const runRound=useCallback(async()=>{
+    if(running) return;
+    setRunning(true); setError(null); abortRef.current=false;
+    const{red,blue}=popEngine.selectFighters();
+    const tmpl=ATTACK_TEMPLATES[Math.floor(Math.random()*ATTACK_TEMPLATES.length)];
+    const gen=popEngine.generation+1;
+    try{
+      setPhase("red");
+      setStatus(`Gen ${gen} — ${red.specialization} generiert Angriff (${MITRE_TACTICS[tmpl.tactic]?.name})…`);
+      const similar=memory.getSimilarSuccessfulAttacks(tmpl.type);
+      const attack=await genAttack(tmpl,red,similar,humanFeedback);
+      if(abortRef.current) return;
+      setAttack(attack);
+      setStatus(`Red: "${attack.name}" | Konfidenz ${(attack.confidence*100).toFixed(0)}%`);
+      await new Promise(r=>setTimeout(r,400));
+
+      setPhase("blue");
+      setStatus(`Gen ${gen} — ${blue.specialization} analysiert und reagiert…`);
+      const failed=memory.getSimilarFailedDefenses(attack.vector);
+      const defense=await genDefense(attack,blue,failed,humanFeedback);
+      if(abortRef.current) return;
+      setDefense(defense);
+      setStatus(`Blue: "${defense.countermeasure}" | FP-Risiko: ${defense.fp_risk}`);
+      await new Promise(r=>setTimeout(r,400));
+
+      setPhase("arbiter");
+      setStatus(`Gen ${gen} — Blind-Schiedsrichter wertet aus…`);
+      const verdict=await arbitrateBlind(attack,defense,gen);
+      if(abortRef.current) return;
+
+      const redWon=verdict.winner==="red";
+      memory.storeAttack(attack,verdict.winner,gen);
+      memory.storeDefense(defense,verdict.blueScore,defense.weakness);
+      metrics.record(tmpl.tactic,!redWon);
+
+      const prevMod=popEngine.generation%5===4;
+      popEngine.evolve(redWon,verdict.redScore,verdict.blueScore,red,blue);
+      if(prevMod) setReplace({gen:popEngine.generation});
+      if(humanFeedback) setFB("");
+
+      setRounds(prev=>[{generation:gen,attack,defense,verdict,redFighter:red.specialization,blueFighter:blue.specialization,redElo:popEngine.getBestRed().elo,blueElo:popEngine.getBestBlue().elo,tactic:tmpl.tactic},...prev.slice(0,49)]);
+      doSnap();
+      setPhase("done");
+      setStatus(`Gen ${gen} — ${redWon?"🔴 RED":"🔵 BLUE"} gewinnt. ${verdict.reason?.slice(0,100)||""}`);
+    }catch(e){
+      setError(e.message); setPhase("idle");
+    }finally{
+      if(!abortRef.current) setRunning(false);
+    }
+  },[running,humanFeedback,doSnap]);
+
+  useEffect(()=>{loopRef.current=autoLoop;},[autoLoop]);
+  useEffect(()=>{
+    if(!running&&autoLoop&&loopRef.current){
+      const t=setTimeout(()=>{if(loopRef.current) runRound();},1400);
+      return()=>clearTimeout(t);
+    }
+  },[running,autoLoop,runRound]);
+
+  const stop=()=>{abortRef.current=true;setAutoLoop(false);setRunning(false);setPhase("idle");setStatus("Gestoppt.");};
+  const pc={red:C.red,blue:C.blue,arbiter:C.gold,done:C.green,idle:C.dim}[phase]||C.dim;
+  const pl={idle:"BEREIT",red:"RED TEAM",blue:"BLUE TEAM",arbiter:"BLIND ARBITER",done:"ABGESCHLOSSEN"}[phase]||"";
+  const TABS=["arena","population","metrics","memory","rlhf"];
+
+  return(
+    <div style={{minHeight:"100vh",background:"#030508",fontFamily:"'JetBrains Mono','Courier New',monospace",color:"#e8e8e8",padding:"18px 14px"}}>
+      <div style={{maxWidth:1120,margin:"0 auto"}}>
+
+        {/* HEADER */}
+        <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontSize:8,letterSpacing:5,color:C.dim,marginBottom:3}}>ADVERSARIAL TRAINING SYSTEM</div>
+            <h1 style={{margin:0,fontSize:22,fontWeight:800,letterSpacing:-1}}>
+              <span style={{color:C.red}}>RED</span>
+              <span style={{color:"rgba(255,255,255,0.1)",margin:"0 8px",fontWeight:300}}>vs</span>
+              <span style={{color:C.blue}}>BLUE</span>
+              <span style={{fontSize:10,fontWeight:400,color:C.dim,marginLeft:8}}>v2.0</span>
+            </h1>
+            <div style={{fontSize:8,color:"rgba(255,255,255,0.18)",marginTop:3,letterSpacing:1}}>
+              Vector Memory · Population · Conf-ELO · F1/Precision/Recall · MITRE ATT&CK · Blind Arbiter · RLHF
+            </div>
+          </div>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+            {TABS.map(t=>(
+              <button key={t} onClick={()=>setTab(t)} style={{padding:"6px 11px",borderRadius:5,border:"1px solid",borderColor:tab===t?C.blue:"rgba(255,255,255,0.07)",background:tab===t?`${C.blue}18`:"transparent",color:tab===t?C.blue:C.dim,cursor:"pointer",fontSize:9,fontFamily:"inherit",letterSpacing:1,textTransform:"uppercase"}}>{t}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* STATS */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:5,marginBottom:12}}>
+          {[
+            {label:"Gen",      value:snap.gen,                         color:"#fff"},
+            {label:"Red ELO",  value:snap.redElo,                      color:C.red},
+            {label:"Blue ELO", value:snap.blueElo,                     color:C.blue},
+            {label:"F1-Score", value:snap.f1?.toFixed(3)||"0.000",     color:snap.f1>0.7?C.green:C.gold},
+            {label:"Precision",value:snap.precision?.toFixed(3)||"—",  color:C.blue},
+            {label:"Recall",   value:snap.recall?.toFixed(3)||"—",     color:C.blue},
+            {label:"Memory",   value:`${memory.attackStore.length}A`,  color:C.purple},
+            {label:"Pop",      value:`4v4`,                            color:C.dim},
+          ].map((s,i)=><Stat key={i} label={s.label} value={s.value} color={s.color} small/>)}
+        </div>
+
+        {/* ── ARENA TAB ── */}
+        {tab==="arena"&&(
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 170px 1fr",gap:10,marginBottom:10}}>
+              {/* RED */}
+              <div style={{border:`1px solid ${phase==="red"?C.red:"rgba(255,42,84,0.18)"}`,borderRadius:10,padding:13,background:"rgba(255,42,84,0.025)",animation:phase==="red"?"glow 1.5s infinite":"none",transition:"border-color .3s"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+                  <div style={{fontSize:8,fontWeight:800,letterSpacing:3,color:C.red}}>RED TEAM</div>
+                  <Tag label={`ELO ${snap.redElo}`} color={C.red}/>
+                </div>
+                <PopTable pop={popEngine.redPop} side="red"/>
+                {curAttack&&(
+                  <div style={{marginTop:10,borderTop:"1px solid rgba(255,42,84,0.15)",paddingTop:9}}>
+                    <div style={{fontSize:7,letterSpacing:2,color:C.red,marginBottom:4}}>LETZTER ANGRIFF</div>
+                    <div style={{fontSize:10,fontWeight:700,color:"#ff6b35",marginBottom:3}}>{curAttack.name}</div>
+                    <div style={{fontSize:8,color:"rgba(255,255,255,0.35)",lineHeight:1.4,marginBottom:3}}>{curAttack.vector}</div>
+                    {curAttack.tactic&&<Tag label={MITRE_TACTICS[curAttack.tactic]?.name||curAttack.tactic} color={MITRE_TACTICS[curAttack.tactic]?.color||C.gold}/>}
+                    <div style={{fontSize:8,color:"rgba(255,255,255,0.2)",marginTop:4}}>Novelty: {curAttack.novelty}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* CENTER */}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:7,letterSpacing:2,color:pc,marginBottom:3,animation:running?"pulse 1s infinite":"none"}}>{pl}</div>
+                  <div style={{fontSize:20,opacity:running?1:.3}}>
+                    {{red:"⚔",blue:"⬡",arbiter:"⚖",done:"✓",idle:"◎"}[phase]||"◎"}
+                  </div>
+                </div>
+                <EloChart history={popEngine.history}/>
+                <div style={{display:"flex",flexDirection:"column",gap:5,width:"100%"}}>
+                  <button onClick={runRound} disabled={running} style={{padding:"8px 0",borderRadius:5,border:`1px solid ${C.red}44`,background:running?"rgba(255,255,255,0.02)":`${C.red}14`,color:running?C.dim:C.red,cursor:running?"not-allowed":"pointer",fontSize:9,fontWeight:800,fontFamily:"inherit",letterSpacing:1}}>▶ RUNDE</button>
+                  <button onClick={()=>setAutoLoop(v=>!v)} style={{padding:"8px 0",borderRadius:5,border:`1px solid ${autoLoop?C.blue:C.blue+"33"}`,background:autoLoop?`${C.blue}14`:"transparent",color:autoLoop?C.blue:`${C.blue}66`,cursor:"pointer",fontSize:9,fontWeight:800,fontFamily:"inherit",letterSpacing:1}}>{autoLoop?"⏸ PAUSE":"⟳ AUTO"}</button>
+                  {running&&<button onClick={stop} style={{padding:"8px 0",borderRadius:5,border:"1px solid rgba(255,255,255,0.08)",background:"transparent",color:C.dim,cursor:"pointer",fontSize:9,fontFamily:"inherit"}}>■ STOP</button>}
+                </div>
+                {replaceNote&&<div style={{fontSize:8,color:C.gold,textAlign:"center",animation:"fadeIn .5s",background:`${C.gold}10`,padding:"3px 7px",borderRadius:4}}>↻ Gen {replaceNote.gen}: Schwächste ersetzt</div>}
+              </div>
+
+              {/* BLUE */}
+              <div style={{border:`1px solid ${phase==="blue"?C.blue:"rgba(0,229,255,0.18)"}`,borderRadius:10,padding:13,background:"rgba(0,229,255,0.025)",animation:phase==="blue"?"glowB 1.5s infinite":"none",transition:"border-color .3s"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+                  <div style={{fontSize:8,fontWeight:800,letterSpacing:3,color:C.blue}}>BLUE TEAM</div>
+                  <Tag label={`ELO ${snap.blueElo}`} color={C.blue}/>
+                </div>
+                <PopTable pop={popEngine.bluePop} side="blue"/>
+                {curDefense&&(
+                  <div style={{marginTop:10,borderTop:"1px solid rgba(0,229,255,0.15)",paddingTop:9}}>
+                    <div style={{fontSize:7,letterSpacing:2,color:C.blue,marginBottom:4}}>LETZTE VERTEIDIGUNG</div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.blue,marginBottom:3}}>{curDefense.countermeasure}</div>
+                    <div style={{fontSize:8,color:"rgba(255,255,255,0.35)",lineHeight:1.4,marginBottom:3}}>{curDefense.detection}</div>
+                    <Tag label={`FP: ${curDefense.fp_risk}`} color={curDefense.fp_risk==="high"?C.red:C.gold}/>
+                    <div style={{fontSize:8,color:"rgba(255,100,100,0.4)",marginTop:4}}>Gap: {curDefense.coverage}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* STATUS */}
+            <div style={{border:`1px solid ${pc}28`,borderRadius:7,padding:"8px 12px",background:`${pc}06`,marginBottom:10,fontSize:9,color:"rgba(255,255,255,0.55)",lineHeight:1.5,minHeight:36}}>
+              <span style={{color:pc,fontWeight:700,marginRight:6}}>{pl}</span>{status}
+              {error&&<span style={{color:C.red,marginLeft:8}}>⚠ {error}</span>}
+            </div>
+
+            {/* HISTORY */}
+            {rounds.length>0&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:8,maxHeight:400,overflowY:"auto"}}>
+                {rounds.map((r,i)=><RoundCard key={i} round={r}/>)}
+              </div>
+            )}
+            {rounds.length===0&&(
+              <div style={{textAlign:"center",padding:"36px 0",color:"rgba(255,255,255,0.1)",fontSize:10,letterSpacing:1}}>
+                Keine Runden bisher. Drücke ▶ RUNDE oder aktiviere ⟳ AUTO.
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── POPULATION TAB ── */}
+        {tab==="population"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {[{side:"red",pop:popEngine.redPop,c:C.red},{side:"blue",pop:popEngine.bluePop,c:C.blue}].map(({side,pop,c})=>(
+              <div key={side} style={{border:`1px solid ${c}22`,borderRadius:10,padding:16,background:`${c}04`}}>
+                <div style={{fontSize:8,fontWeight:800,letterSpacing:3,color:c,marginBottom:12}}>{side.toUpperCase()} POPULATION</div>
+                {[...pop].sort((a,b)=>b.elo-a.elo).map((agent,i)=>(
+                  <div key={agent.id} style={{marginBottom:12,padding:10,borderRadius:7,background:i===0?`${c}0a`:"rgba(255,255,255,0.02)",border:`1px solid ${i===0?c+"33":"transparent"}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                      <div style={{fontSize:10,fontWeight:800,color:i===0?c:"rgba(255,255,255,0.5)"}}>{i+1}. {agent.specialization}</div>
+                      <div style={{fontSize:12,fontWeight:800,color:c}}>{agent.elo}</div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:7,color:C.dim,marginBottom:3}}>{side==="red"?"MUTATION":"LEARNING"}</div>
+                        <Bar value={side==="red"?agent.mutationRate:agent.learningRate} color={c} height={5}/>
+                        <div style={{fontSize:8,color:c,marginTop:2}}>{((side==="red"?agent.mutationRate:agent.learningRate)*100).toFixed(0)}%</div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:7,color:C.dim,marginBottom:3}}>WIN RATE</div>
+                        <Bar value={agent.rounds>0?agent.wins/agent.rounds:0} color={c} height={5}/>
+                        <div style={{fontSize:8,color:"rgba(255,255,255,0.4)",marginTop:2}}>{agent.wins}W/{agent.losses}L</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{fontSize:8,color:C.dim,marginTop:6,padding:8,background:"rgba(255,255,255,0.02)",borderRadius:6}}>
+                  Alle 5 Gen: schwächster Agent → mutierter Klon des besten. Nächster Swap: Gen {Math.ceil((popEngine.generation+1)/5)*5}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── METRICS TAB ── */}
+        {tab==="metrics"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            <div style={{border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:16}}>
+              <div style={{fontSize:8,fontWeight:700,letterSpacing:3,color:C.dim,marginBottom:12}}>KLASSIFIKATIONSMETRIKEN</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:12}}>
+                {[
+                  {label:"F1-Score",  value:snap.f1?.toFixed(3)||"0.000",color:snap.f1>0.7?C.green:C.gold},
+                  {label:"Precision", value:snap.precision?.toFixed(3)||"—",color:C.blue},
+                  {label:"Recall",    value:snap.recall?.toFixed(3)||"—",color:C.blue},
+                  {label:"Schwächste",value:metrics.getWeakest()?MITRE_TACTICS[metrics.getWeakest()]?.name?.split(" ")[0]||"—":"—",color:C.red},
+                ].map((s,i)=><Stat key={i} label={s.label} value={s.value} color={s.color} small/>)}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:14}}>
+                {[{label:"True Pos",value:popEngine.metrics.tp,color:C.green},{label:"False Pos",value:popEngine.metrics.fp,color:C.gold},{label:"False Neg",value:popEngine.metrics.fn,color:C.red},{label:"True Neg",value:popEngine.metrics.tn,color:C.blue}].map((m,i)=><Stat key={i} label={m.label} value={m.value} color={m.color} small/>)}
+              </div>
+              <div style={{fontSize:8,color:C.dim,marginBottom:8,letterSpacing:2}}>ELO + F1 VERLAUF</div>
+              <EloChart history={popEngine.history}/>
+            </div>
+            <div style={{border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:16}}>
+              <div style={{fontSize:8,fontWeight:700,letterSpacing:3,color:C.dim,marginBottom:12}}>MITRE ATT&CK DETECTION RATE</div>
+              <MitreHeatmap tracker={metrics}/>
+              <div style={{marginTop:14}}>
+                <div style={{fontSize:8,color:C.dim,marginBottom:8,letterSpacing:2}}>ANGRIFFS-RAUM KARTE</div>
+                <AttackMap memory={memory} gen={snap.gen}/>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── MEMORY TAB ── */}
+        {tab==="memory"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {[
+              {label:"ANGRIFFS-GEDÄCHTNIS",store:memory.attackStore,side:"red",keyFn:e=>({title:e.attack.name,sub:e.attack.evasion,tag:e.outcome==="red"?"BYPASS":"DETECTED",outcome:e.outcome})},
+              {label:"VERTEIDIGUNGS-GEDÄCHTNIS",store:memory.defenseStore,side:"blue",keyFn:e=>({title:e.defense.countermeasure,sub:e.weakness,tag:e.blueScore>0.6?"EFFEKTIV":"VERSAGT",outcome:e.blueScore>0.6?"blue":"red"})},
+            ].map(({label,store,side,keyFn})=>(
+              <div key={side} style={{border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                  <div style={{fontSize:8,fontWeight:700,letterSpacing:2,color:C.dim}}>{label}</div>
+                  <Tag label={`${store.length} Einträge`} color={side==="red"?C.red:C.blue}/>
+                </div>
+                <div style={{maxHeight:350,overflowY:"auto"}}>
+                  {store.length===0
+                    ?<div style={{fontSize:9,color:C.dim,textAlign:"center",padding:20}}>Noch leer</div>
+                    :[...store].reverse().slice(0,20).map((e,i)=>{
+                        const d=keyFn(e);
+                        const c=d.outcome==="red"?C.red:C.blue;
+                        return(
+                          <div key={i} style={{padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",display:"flex",gap:8,alignItems:"flex-start"}}>
+                            <div style={{minWidth:22,fontSize:8,color:C.dim}}>#{store.length-i}</div>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.7)",marginBottom:1}}>{d.title}</div>
+                              <div style={{fontSize:8,color:"rgba(255,255,255,0.3)"}}>{d.sub}</div>
+                            </div>
+                            <Tag label={d.tag} color={c}/>
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+                <div style={{marginTop:8,fontSize:8,color:C.dim,padding:7,background:"rgba(255,255,255,0.02)",borderRadius:6}}>
+                  Top-3 ähnlichste Einträge fließen via Cosine-Similarity in jeden neuen Prompt ein.
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── RLHF TAB ── */}
+        {tab==="rlhf"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            <div style={{border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:16}}>
+              <div style={{fontSize:8,fontWeight:700,letterSpacing:3,color:C.dim,marginBottom:12}}>HUMAN FEEDBACK (RLHF)</div>
+              <p style={{fontSize:10,color:"rgba(255,255,255,0.45)",lineHeight:1.7,marginBottom:12}}>Dein Feedback wird direkt in den Prompt-Kontext beider Teams eingefügt. Steuer Angriffsstrategie, Verteidigungsfokus oder Realismus.</p>
+              <textarea value={pendingFB} onChange={e=>setPending(e.target.value)} placeholder='z.B. "Angriffe sollen evasiver werden" oder "Blue Team soll MITRE TA0005 priorisieren"' style={{width:"100%",minHeight:90,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,padding:11,color:"#e8e8e8",fontSize:10,fontFamily:"inherit",lineHeight:1.6,resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <button onClick={()=>{setFB(pendingFB);setPending("");}} disabled={!pendingFB} style={{flex:1,padding:"8px 0",borderRadius:5,border:`1px solid ${C.blue}44`,background:pendingFB?`${C.blue}14`:"transparent",color:pendingFB?C.blue:C.dim,cursor:pendingFB?"pointer":"not-allowed",fontSize:9,fontWeight:800,fontFamily:"inherit",letterSpacing:1}}>EINREICHEN</button>
+                <button onClick={()=>{setFB("");setPending("");}} style={{padding:"8px 12px",borderRadius:5,border:"1px solid rgba(255,255,255,0.08)",background:"transparent",color:C.dim,cursor:"pointer",fontSize:9,fontFamily:"inherit"}}>RESET</button>
+              </div>
+              {humanFeedback&&(
+                <div style={{marginTop:10,padding:10,background:`${C.gold}0a`,border:`1px solid ${C.gold}33`,borderRadius:7}}>
+                  <div style={{fontSize:7,color:C.gold,letterSpacing:2,marginBottom:4}}>AKTIV — wird bei nächster Runde eingesetzt</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",lineHeight:1.5}}>{humanFeedback}</div>
+                </div>
+              )}
+            </div>
+            <div style={{border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:16}}>
+              <div style={{fontSize:8,fontWeight:700,letterSpacing:3,color:C.dim,marginBottom:12}}>WIE ES FUNKTIONIERT</div>
+              {[
+                {n:"1",t:"Runde beobachten",d:"Siehst du unrealistische Angriffe oder schwache Verteidigungen?",c:C.gold},
+                {n:"2",t:"Feedback eingeben",d:"Natürliche Sprache — keine spezielle Syntax nötig",c:C.gold},
+                {n:"3",t:"Prompt-Injektion",d:"Dein Text wird als Kontext in BEIDE nächsten API-Calls eingefügt",c:C.blue},
+                {n:"4",t:"Beide Teams adaptieren",d:"Red und Blue berücksichtigen Feedback bei Angriff/Verteidigung",c:C.green},
+                {n:"5",t:"Auto-Reset nach Runde",d:"Feedback wird nach Verwendung entfernt — einmalige Steuerung",c:C.green},
+              ].map((s,i)=>(
+                <div key={i} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
+                  <div style={{width:20,height:20,borderRadius:"50%",background:`${s.c}18`,border:`1px solid ${s.c}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:s.c,minWidth:20}}>{s.n}</div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.7)",marginBottom:1}}>{s.t}</div>
+                    <div style={{fontSize:9,color:C.dim,lineHeight:1.5}}>{s.d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{marginTop:16,fontSize:7,color:"rgba(255,255,255,0.1)",textAlign:"center",letterSpacing:2}}>
+          ADVERSARIAL ARENA v2.0 · Standalone HTML · Vector Memory · Population · Blind Arbiter · MITRE ATT&CK · RLHF
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderApp(){
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<App/>);
+}
+</script>
+</body>
+</html>
